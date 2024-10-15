@@ -334,6 +334,9 @@
                 case 'file':
                     receiveFile(data.file, data.name, data.type);
                     break;
+                case 'pdf':
+                    receivePDF(data.file, data.name);
+                    break; // Thêm case cho tệp PDF
             }
             isReceiving = false;
         }
@@ -393,10 +396,12 @@
                     contentDiv.innerHTML = content;
                     scheduleSyncContent();
                 } else if (file.name.endsWith('.pdf')) {
+                    // Gửi tệp PDF qua kết nối
                     if (conn && !isPaused) {
-                        conn.send({ type: 'file', file: content, name: file.name, type: file.type });
+                        conn.send({ type: 'pdf', file: new Uint8Array(content), name: file.name });
                     }
-                    alert("PDF files can't be processed client-side. The file has been sent to the other peer.");
+                    // Hiển thị PDF ngay trên máy gửi
+                    displayPDF(content, file.name);
                 }
             };
 
@@ -408,6 +413,20 @@
                 reader.readAsText(file);
             }
         });
+
+        function receivePDF(fileData, fileName) {
+            const blob = new Blob([fileData], { type: 'application/pdf' });
+            const url = URL.createObjectURL(blob);
+
+            // Hiển thị PDF trong contentDiv
+            contentDiv.innerHTML = `<iframe src="${url}" style="width:100%; height:100%; border:none;"></iframe>`;
+            alert('Received PDF: ' + fileName);
+        }
+
+        function displayPDF(content, fileName) {
+            const url = URL.createObjectURL(new Blob([content], { type: 'application/pdf' }));
+            contentDiv.innerHTML = `<iframe src="${url}" style="width:100%; height:100%; border:none;"></iframe>`;
+        }
 
         function displayImage(content) {
             contentDiv.innerHTML = `
