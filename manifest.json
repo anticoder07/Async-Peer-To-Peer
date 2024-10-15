@@ -1,0 +1,20 @@
+{
+    "short_name": "Connect PTP",
+    "name": "Connect PTP Application",
+    "icons": [
+        {
+            "src": "./h.jpg",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "./h.jpg",
+            "sizes": "512x512",
+            "type": "image/png"
+        }
+    ],
+    "start_url": "./index.html",
+    "display": "standalone",
+    "theme_color": "#ffffff",
+    "background_color": "#ffffff"
+}
