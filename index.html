@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced Synchronized Document and Image Viewer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.9.359/pdf.min.js"></script>
+    <script src="https://unpkg.com/peerjs@1.3.2/dist/peerjs.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css" rel="stylesheet">
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: Arial, sans-serif;
+        }
+
+        #app-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        #connection-bar {
+            background-color: #f0f0f0;
+            padding: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        #connection-bar.collapsed {
+            padding: 5px;
+            justify-content: flex-start;
+        }
+
+        #connection-bar.collapsed #connection-details {
+            display: none;
+        }
+
+        #toggle-connection-bar {
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 5px;
+        }
+
+        #connection-status {
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+
+        #connection-status.connected {
+            background-color: #4CAF50;
+            color: white;
+        }
+
+        #connection-status.disconnected {
+            background-color: #f44336;
+            color: white;
+        }
+
+        #content {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 20px;
+            position: relative;
+        }
+
+        #input-bar {
+            background-color: #f0f0f0;
+            padding: 10px;
+            display: flex;
+            align-items: center;
+        }
+
+        #text-input,
+        #url-input {
+            flex-grow: 1;
+            margin: 0 10px;
+            padding: 5px;
+        }
+
+        .btn {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            cursor: pointer;
+            border-radius: 3px;
+            margin-left: 5px;
+        }
+
+        #file-input {
+            display: none;
+        }
+
+        img {
+            max-width: 100%;
+            height: auto;
+        }
+
+        .rotate-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 10;
+        }
+
+        .delete-btn {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 10;
+        }
+
+        .rotatable {
+            transition: transform 0.3s ease;
+        }
+
+        #copy-id-btn {
+            background-color: #008CBA;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app-container">
+        <div id="connection-bar">
+            <button id="toggle-connection-bar" onclick="toggleConnectionBar()">
+                <i class="fas fa-bars"></i>
+            </button>
+            <div id="connection-details">
+                <span>Your Peer ID: <span id="my-peer-id"></span></span>
+                <button id="copy-id-btn" class="btn" onclick="copyPeerID()">
+                    <i class="fas fa-copy"></i> Copy ID
+                </button>
+                <div>
+                    <input type="text" id="peer-id-input" placeholder="Enter Peer ID">
+                    <button class="btn" onclick="connectToPeer()">Connect</button>
+                </div>
+            </div>
+            <span id="connection-status" class="disconnected">Disconnected</span>
+        </div>
+        <div id="content"></div>
+        <div id="input-bar">
+            <textarea id="text-input" placeholder="Paste your text here"></textarea>
+            <input type="text" id="url-input" placeholder="Enter URL">
+            <button class="btn" onclick="loadURL()"><i class="fas fa-link"></i></button>
+            <input type="file" id="file-input" accept=".txt,.html,.pdf,.jpg,.jpeg,.png,.gif">
+            <button class="btn" onclick="document.getElementById('file-input').click()">
+                <i class="fas fa-file-upload"></i>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        let peer, conn, lastContent = '', syncTimeout, isReceiving = false;
+        let currentRotation = 0;
+        const contentDiv = document.getElementById('content');
+        const textInput = document.getElementById('text-input');
+        const urlInput = document.getElementById('url-input');
+        const fileInput = document.getElementById('file-input');
+        const connectionStatus = document.getElementById('connection-status');
+
+        function initPeer() {
+            peer = new Peer();
+            peer.on('open', id => document.getElementById('my-peer-id').textContent = id);
+            peer.on('connection', connection => {
+                conn = connection;
+                setupConnection();
+            });
+        }
+
+        function connectToPeer() {
+            const peerId = document.getElementById('peer-id-input').value;
+            if (peerId) {
+                conn = peer.connect(peerId);
+                setupConnection();
+            }
+        }
+
+        function setupConnection() {
+            conn.on('open', () => {
+                console.log("Connected to peer!");
+                connectionStatus.textContent = 'Connected';
+                connectionStatus.classList.remove('disconnected');
+                connectionStatus.classList.add('connected');
+            });
+            conn.on('data', handleIncomingData);
+            conn.on('close', () => {
+                connectionStatus.textContent = 'Disconnected';
+                connectionStatus.classList.remove('connected');
+                connectionStatus.classList.add('disconnected');
+            });
+        }
+
+        function handleIncomingData(data) {
+            isReceiving = true;
+            switch (data.type) {
+                case 'content':
+                    contentDiv.innerHTML = data.content;
+                    break;
+                case 'scroll':
+                    contentDiv.scrollTop = data.scrollTop;
+                    break;
+                case 'url':
+                    loadURLContent(data.url);
+                    break;
+                case 'image':
+                    displayImage(data.content);
+                    break;
+                case 'rotate':
+                    currentRotation = data.angle;
+                    const rotatable = contentDiv.querySelector('.rotatable');
+                    if (rotatable) {
+                        rotatable.style.transform = `rotate(${currentRotation}deg)`;
+                    }
+                    break;
+                case 'delete':
+                    deleteContent();
+                    break;
+            }
+            isReceiving = false;
+        }
+
+        function toggleConnectionBar() {
+            const connectionBar = document.getElementById('connection-bar');
+            connectionBar.classList.toggle('collapsed');
+        }
+
+        function copyPeerID() {
+            const peerID = document.getElementById('my-peer-id').textContent;
+            navigator.clipboard.writeText(peerID).then(() => {
+                console.log('Peer ID copied to clipboard!');
+            }).catch(err => {
+                console.error('Failed to copy: ', err);
+            });
+        }
+
+        textInput.addEventListener('input', () => {
+            contentDiv.innerText = textInput.value;
+            scheduleSyncContent();
+        });
+
+        function loadURL() {
+            const url = urlInput.value;
+            if (url) {
+                loadURLContent(url);
+                if (conn) conn.send({ type: 'url', url: url });
+            }
+        }
+
+        function loadURLContent(url) {
+            contentDiv.innerHTML = `
+                <iframe src="${url}" sandbox="allow-scripts allow-same-origin" style="width:100%;height:100%;border:none;"></iframe>
+                <button class="btn rotate-btn" onclick="rotateContent(90, true)"><i class="fas fa-undo"></i></button>
+            `;
+            currentRotation = 0;
+            scheduleSyncContent();
+        }
+
+        fileInput.addEventListener('change', event => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = e => {
+                const content = e.target.result;
+                if (file.type.startsWith('image/')) {
+                    displayImage(content);
+                    if (conn) conn.send({ type: 'image', content: content });
+                } else if (file.name.endsWith('.txt') || file.name.endsWith('.html')) {
+                    contentDiv.innerHTML = content;
+                    scheduleSyncContent();
+                } else if (file.name.endsWith('.pdf')) {
+                    displayPDFText(content);
+                }
+            };
+
+            if (file.type.startsWith('image/')) {
+                reader.readAsDataURL(file);
+            } else if (file.name.endsWith('.pdf')) {
+                reader.readAsArrayBuffer(file);
+            } else {
+                reader.readAsText(file);
+            }
+        });
+
+        function displayImage(content) {
+            contentDiv.innerHTML = `
+                <img src="${content}" alt="Shared image" class="rotatable">
+                <button class="btn rotate-btn" onclick="rotateContent(90, true)"><i class="fas fa-undo"></i></button>
+                <button class="btn delete-btn" onclick="deleteContent()"><i class="fas fa-trash"></i></button>
+            `;
+            currentRotation = 0; // Reset rotation when displaying a new image
+            scheduleSyncContent();
+        }
+
+        function displayPDFText(arrayBuffer) {
+            pdfjsLib.getDocument({ data: arrayBuffer }).promise.then(pdf => {
+                let textContent = '';
+                const numPages = pdf.numPages;
+                let processedPages = 0;
+
+                for (let i = 1; i <= numPages; i++) {
+                    pdf.getPage(i).then(page => {
+                        page.getTextContent().then(content => {
+                            textContent += content.items.map(item => item.str).join(' ') + '\n\n';
+                            processedPages++;
+                            if (processedPages === numPages) {
+                                contentDiv.innerHTML = `
+                                    <div class="rotatable">${textContent}</div>
+                                    <button class="btn rotate-btn" onclick="rotateContent(90, true)"><i class="fas fa-undo"></i></button>
+                                `;
+                                currentRotation = 0;
+                                scheduleSyncContent();
+                            }
+                        });
+                    });
+                }
+            });
+        }
+
+        function rotateContent(angle, sync = false) {
+            const rotatable = contentDiv.querySelector('.rotatable');
+            if (rotatable) {
+                currentRotation = (currentRotation + angle) % 360;
+                rotatable.style.transform = `rotate(${currentRotation}deg)`;
+
+                if (sync && conn) {
+                    conn.send({ type: 'rotate', angle: currentRotation, sync: false });
+                }
+            }
+        }
+
+        function deleteContent() {
+            contentDiv.innerHTML = '';
+            currentRotation = 0;
+            if (conn) conn.send({ type: 'delete' });
+        }
+
+        function scheduleSyncContent() {
+            clearTimeout(syncTimeout);
+            syncTimeout = setTimeout(syncContent, 500);
+        }
+
+        function syncContent() {
+            if (conn && !isReceiving && contentDiv.innerHTML !== lastContent) {
+                lastContent = contentDiv.innerHTML;
+                conn.send({ type: 'content', content: lastContent });
+            }
+        }
+
+        function syncScroll() {
+            if (conn && !isReceiving) {
+                conn.send({ type: 'scroll', scrollTop: contentDiv.scrollTop });
+            }
+        }
+
+        contentDiv.addEventListener('scroll', syncScroll);
+        new MutationObserver(scheduleSyncContent).observe(contentDiv, { childList: true, subtree: true });
+
+        window.onload = initPeer;
+    </script>
+</body>
+
+</html>
