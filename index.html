@@ -332,14 +332,13 @@
                     }
                     break;
                 case 'file':
+                    // Nhận tệp và hiển thị PDF
                     receiveFile(data.file, data.name, data.type);
                     break;
-                case 'pdf':
-                    receivePDF(data.file, data.name);
-                    break; // Thêm case cho tệp PDF
             }
             isReceiving = false;
         }
+
 
         function toggleConnectionBar() {
             const connectionBar = document.getElementById('connection-bar');
@@ -398,7 +397,7 @@
                 } else if (file.name.endsWith('.pdf')) {
                     // Gửi tệp PDF qua kết nối
                     if (conn && !isPaused) {
-                        conn.send({ type: 'pdf', file: new Uint8Array(content), name: file.name });
+                        conn.send({ type: 'file', file: new Uint8Array(content), name: file.name, type: file.type });
                     }
                     // Hiển thị PDF ngay trên máy gửi
                     displayPDF(content, file.name);
@@ -408,7 +407,7 @@
             if (file.type.startsWith('image/')) {
                 reader.readAsDataURL(file);
             } else if (file.name.endsWith('.pdf')) {
-                reader.readAsArrayBuffer(file);
+                reader.readAsArrayBuffer(file); // Đọc tệp PDF dưới dạng ArrayBuffer
             } else {
                 reader.readAsText(file);
             }
@@ -544,14 +543,23 @@
 
         function receiveFile(fileData, fileName, fileType) {
             const blob = new Blob([fileData], { type: fileType });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = fileName;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+
+            if (fileType === 'application/pdf') {
+                // Nếu tệp là PDF, hiển thị nó
+                const url = URL.createObjectURL(blob);
+                contentDiv.innerHTML = `<iframe src="${url}" style="width:100%; height:100%; border:none;"></iframe>`;
+                alert('Received PDF: ' + fileName);
+            } else {
+                // Nếu không phải PDF, xử lý theo cách khác
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }
         }
 
         contentWrapper.addEventListener('scroll', syncScroll);
