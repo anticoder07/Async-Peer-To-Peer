@@ -325,7 +325,7 @@
                     }
                     break;
                 case 'delete':
-                    deleteContent();
+                    deleteContentReceive();
                     break;
                 case 'zoom':
                     currentZoom = data.zoom;
@@ -467,15 +467,25 @@
         }
 
         function deleteContent() {
+            deleteContentReceive();
+
+            if (conn && !isPaused) {
+                conn.send({ type: 'delete' });
+            }
+        }
+
+        function deleteContentReceive() {
             contentDiv.innerHTML = '';
             currentRotation = 0;
             currentZoom = 1;
-            if (conn && !isPaused) conn.send({ type: 'delete' });
 
             const optionImageButton = document.querySelector('.option-image-button');
             if (optionImageButton) {
                 optionImageButton.remove();
             }
+
+            fileInput.value = '';
+            lastContent = '';
         }
 
         function zoomIn() {
@@ -548,12 +558,10 @@
             const blob = new Blob([fileData], { type: fileType });
 
             if (fileType === 'application/pdf') {
-                // Nếu tệp là PDF, hiển thị nó
                 const url = URL.createObjectURL(blob);
                 contentDiv.innerHTML = `<iframe src="${url}" style="width:100%; height:100%; border:none;"></iframe>`;
                 alert('Received PDF: ' + fileName);
             } else {
-                // Nếu không phải PDF, xử lý theo cách khác
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
