@@ -82,6 +82,7 @@
             background-color: #f0f0f0;
             padding: 10px;
             display: flex;
+            flex-wrap: wrap;
             align-items: center;
         }
 
@@ -90,6 +91,7 @@
             flex-grow: 1;
             margin: 0 10px;
             padding: 5px;
+            width: 90%;
         }
 
         .btn {
@@ -110,21 +112,7 @@
             position: relative;
             max-width: 100%;
             height: auto;
-        }
-
-        .rotate-btn {
-            position: fixed;
-            top: 100px;
-            right: 20px;
-            z-index: 10;
-        }
-
-        .delete-btn {
-            position: fixed;
-            top: 100px;
-            right: 90px;
-            /* left: 10px; */
-            z-index: 10;
+            transition: transform 0.3s ease;
         }
 
         .rotatable {
@@ -144,6 +132,78 @@
             position: relative;
             display: inline-block;
         }
+
+        @media only screen and (max-width: 768px) {
+            #connection-bar {
+                flex-wrap: wrap;
+                /* flex-direction: column; */
+                /* align-items: center; */
+            }
+
+            #connection-details {
+                margin-top: 4px;
+            }
+
+            #input-bar {
+                flex-direction: column;
+                justify-content: space-between;
+            }
+
+            #text-input,
+            #url-input {
+                margin: 3px 0;
+            }
+
+            .btn {
+                margin: 3px 0;
+            }
+        }
+
+        .rotate-90 {
+            transform: rotate(90deg);
+        }
+
+        .rotate-180 {
+            transform: rotate(180deg);
+        }
+
+        .rotate-270 {
+            transform: rotate(270deg);
+        }
+
+        .input-container-bar {
+            display: flex;
+            flex-wrap: nowrap;
+            min-width: 94%;
+        }
+
+        .option-input {
+            flex-grow: 0;
+            margin: 5px 0px;
+            max-width: 200px;
+        }
+
+        @media only screen and (max-width: 568px) {
+            .input-container-bar {
+                flex-direction: column;
+                min-width: 0px;
+            }
+        }
+
+        .input-container-bar>textarea,
+        .input-container-bar>input[type="text"] {
+            flex-grow: 3;
+            margin: 0 10px;
+        }
+
+        #pause-btn {
+            margin-left: 10px;
+        }
+
+        .option-image-button {
+            display: flex;
+            margin: 5px;
+        }
     </style>
 </head>
 
@@ -151,10 +211,10 @@
     <div id="app-container">
         <div id="connection-bar">
             <button id="toggle-connection-bar" onclick="toggleConnectionBar()">
-                <i class="fas fa-bars"></i>
+                <i class="fas fa-bars" style="margin-right: 3px;"></i>
             </button>
             <div id="connection-details">
-                <span>Your Peer ID: <span id="my-peer-id"></span></span>
+                <span>PeerID: <span id="my-peer-id"></span></span>
                 <button id="copy-id-btn" class="btn" onclick="copyPeerID()">
                     <i class="fas fa-copy"></i> Copy ID
                 </button>
@@ -175,15 +235,18 @@
             <div id="content"></div>
         </div>
         <div id="input-bar">
-            <textarea id="text-input" placeholder="Paste your text here"></textarea>
-            <input type="text" id="url-input" placeholder="Enter URL">
-            <button class="btn" onclick="loadURL()"><i class="fas fa-link"></i></button>
-            <input type="file" id="file-input" accept=".txt,.html,.pdf,.jpg,.jpeg,.png,.gif">
-            <button class="btn" onclick="document.getElementById('file-input').click()">
-                <i class="fas fa-file-upload"></i>
-            </button>
-            <button class="btn" onclick="zoomIn()"><i class="fas fa-search-plus"></i></button>
-            <button class="btn" onclick="zoomOut()"><i class="fas fa-search-minus"></i></button>
+            <div class="input-container-bar">
+                <textarea id="text-input" placeholder="Paste your text here"></textarea>
+                <input type="text" id="url-input" placeholder="Enter URL">
+            </div>
+            <div class="option-input">
+                <button class="btn" onclick="loadURL()"><i class="fas fa-link"></i></button>
+                <input type="file" id="file-input" accept=".txt,.html,.pdf,.jpg,.jpeg,.png,.gif">
+                <button class="btn" onclick="document.getElementById('file-input').click()">
+                    <i class="fas fa-file-upload"></i>
+                </button>
+
+            </div>
         </div>
     </div>
 
@@ -197,6 +260,7 @@
         const fileInput = document.getElementById('file-input');
         const connectionStatus = document.getElementById('connection-status');
         const pauseBtn = document.getElementById('pause-btn');
+        const connectionBar = document.getElementById('connection-bar');
         let scrollSyncTimeout;
 
         function initPeer() {
@@ -349,10 +413,17 @@
             contentDiv.innerHTML = `
                 <div class="image-container">
                     <img src="${content}" alt="Shared image" class="rotatable">
-                    <button class="btn rotate-btn" onclick="rotateContent(90, true)"><i class="fas fa-undo"></i></button>
-                    <button class="btn delete-btn" onclick="deleteContent()"><i class="fas fa-trash"></i></button>
+                    
                 </div>
             `;
+            connectionBar.insertAdjacentHTML('afterend', `
+                <div class="option-image-button">
+                    <button class="btn rotate-btn" onclick="rotateContent(90, true)"><i class="fas fa-undo"></i></button>
+                    <button class="btn delete-btn" onclick="deleteContent()"><i class="fas fa-trash"></i></button>
+                    <button class="btn zoomIn-btn" onclick="zoomIn()"><i class="fas fa-search-plus"></i></button>
+                    <button class="btn zoomOut-btn" onclick="zoomOut()"><i class="fas fa-search-minus"></i></button>
+                </div>
+            `);
             currentRotation = 0;
             currentZoom = 1;
             scheduleSyncContent();
