@@ -126,6 +126,11 @@
         #copy-id-btn {
             background-color: #008CBA;
         }
+
+        #broadcast-btn {
+            background-color: #FF9800;
+            margin-left: 10px;
+        }
     </style>
 </head>
 
@@ -139,6 +144,9 @@
                 <span>Your Peer ID: <span id="my-peer-id"></span></span>
                 <button id="copy-id-btn" class="btn" onclick="copyPeerID()">
                     <i class="fas fa-copy"></i> Copy ID
+                </button>
+                <button id="broadcast-btn" class="btn" onclick="broadcastPeerID()">
+                    <i class="fas fa-broadcast-tower"></i> Broadcast ID
                 </button>
                 <div>
                     <input type="text" id="peer-id-input" placeholder="Enter Peer ID">
@@ -170,7 +178,10 @@
 
         function initPeer() {
             peer = new Peer();
-            peer.on('open', id => document.getElementById('my-peer-id').textContent = id);
+            peer.on('open', id => {
+                document.getElementById('my-peer-id').textContent = id;
+                startListeningForBroadcasts();
+            });
             peer.on('connection', connection => {
                 conn = connection;
                 setupConnection();
@@ -361,6 +372,31 @@
             if (conn && !isReceiving) {
                 conn.send({ type: 'scroll', scrollTop: contentDiv.scrollTop });
             }
+        }
+
+        function broadcastPeerID() {
+            const myPeerID = document.getElementById('my-peer-id').textContent;
+            if (myPeerID) {
+                const broadcastChannel = new BroadcastChannel('peer-id-broadcast');
+                broadcastChannel.postMessage(myPeerID);
+                alert('Your Peer ID has been broadcasted to devices on the same network!');
+            } else {
+                alert('Your Peer ID is not available yet. Please try again in a few seconds.');
+            }
+        }
+
+        function startListeningForBroadcasts() {
+            const broadcastChannel = new BroadcastChannel('peer-id-broadcast');
+            broadcastChannel.onmessage = (event) => {
+                const receivedPeerID = event.data;
+                if (receivedPeerID !== peer.id) {  // Không kết nối với chính mình
+                    const shouldConnect = confirm(`Received Peer ID: ${receivedPeerID}. Do you want to connect?`);
+                    if (shouldConnect) {
+                        document.getElementById('peer-id-input').value = receivedPeerID;
+                        connectToPeer();
+                    }
+                }
+            };
         }
 
         contentDiv.addEventListener('scroll', syncScroll);
