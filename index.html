@@ -697,6 +697,13 @@
             const video = document.createElement('video');
             video.srcObject = stream;
             video.autoplay = true;
+
+            // Thêm kiểu dáng cho video
+            video.style.width = '100%'; // Đặt chiều rộng 100% để vừa với phần tử cha
+            video.style.height = 'auto'; // Chiều cao tự động để giữ tỷ lệ khung hình
+            video.style.borderRadius = '10px'; // Bo góc
+            video.style.boxShadow = '0 2px 10px rgba(0, 0, 0, 0.5)'; // Thêm hiệu ứng bóng
+
             contentDiv.innerHTML = '';
             contentDiv.appendChild(video);
 
@@ -715,6 +722,7 @@
             });
         }
 
+
         function stopScreenShare() {
             if (localStream) {
                 localStream.getTracks().forEach(track => track.stop());
@@ -729,7 +737,6 @@
                 peer.addTrack(track, stream);
             });
         }
-
 
         contentWrapper.addEventListener('scroll', syncScroll);
         new MutationObserver(scheduleSyncContent).observe(contentDiv, { childList: true, subtree: true });
