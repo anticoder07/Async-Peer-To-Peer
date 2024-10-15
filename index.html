@@ -248,7 +248,7 @@
                 <button class="btn" onclick="document.getElementById('file-input').click()">
                     <i class="fas fa-file-upload"></i>
                 </button>
-
+                <button onclick="startScreenShare()">Share Screen</button>
             </div>
         </div>
     </div>
@@ -265,6 +265,8 @@
         const pauseBtn = document.getElementById('pause-btn');
         const connectionBar = document.getElementById('connection-bar');
         let scrollSyncTimeout;
+        let localStream;
+        let remoteStream;
 
         function initPeer() {
             peer = new Peer();
@@ -298,6 +300,23 @@
                 connectionStatus.textContent = 'Disconnected';
                 connectionStatus.classList.remove('connected');
                 connectionStatus.classList.add('disconnected');
+            });
+
+            peer.on('call', (call) => {
+                console.log("Receiving call");
+                call.answer();
+                call.on('stream', (remoteStream) => {
+                    console.log("Received remote stream");
+                    displayScreenShare(remoteStream);
+                });
+                call.on('error', (error) => {
+                    console.error("Call error:", error);
+                    contentDiv.innerHTML = `<p>Error in received call: ${error.message}</p>`;
+                });
+                call.on('close', () => {
+                    console.log("Call closed");
+                    contentDiv.innerHTML = '<p>Screen sharing has ended.</p>';
+                });
             });
         }
 
@@ -335,8 +354,10 @@
                     }
                     break;
                 case 'file':
-                    // Nhận tệp và hiển thị PDF
                     receiveFile(data.file, data.name, data.type);
+                    break;
+                case 'screen':
+                    displayScreenShare(data.stream);
                     break;
             }
             isReceiving = false;
@@ -398,11 +419,9 @@
                     contentDiv.innerHTML = content;
                     scheduleSyncContent();
                 } else if (file.name.endsWith('.pdf')) {
-                    // Gửi tệp PDF qua kết nối
                     if (conn && !isPaused) {
                         conn.send({ type: 'file', file: new Uint8Array(content), name: file.name, type: file.type });
                     }
-                    // Hiển thị PDF ngay trên máy gửi
                     displayPDF(content, file.name);
                 }
             };
@@ -410,7 +429,7 @@
             if (file.type.startsWith('image/')) {
                 reader.readAsDataURL(file);
             } else if (file.name.endsWith('.pdf')) {
-                reader.readAsArrayBuffer(file); // Đọc tệp PDF dưới dạng ArrayBuffer
+                reader.readAsArrayBuffer(file);
             } else {
                 reader.readAsText(file);
             }
@@ -420,7 +439,6 @@
             const blob = new Blob([fileData], { type: 'application/pdf' });
             const url = URL.createObjectURL(blob);
 
-            // Hiển thị PDF trong contentDiv
             contentDiv.innerHTML = `<iframe src="${url}" style="width:100%; height:100%; border:none;"></iframe>`;
             alert('Received PDF: ' + fileName);
         }
@@ -556,22 +574,83 @@
 
         function receiveFile(fileData, fileName, fileType) {
             const blob = new Blob([fileData], { type: fileType });
+            const url = URL.createObjectURL(blob);
 
             if (fileType === 'application/pdf') {
-                const url = URL.createObjectURL(blob);
-                contentDiv.innerHTML = `<iframe src="${url}" style="width:100%; height:100%; border:none;"></iframe>`;
-                alert('Received PDF: ' + fileName);
+                contentDiv.innerHTML = `
+            <div>
+                <p>Received PDF: ${fileName}</p>
+                <button onclick="window.open('${url}', '_blank')">View PDF</button>
+                <a href="${url}" download="${fileName}">Download PDF</a>
+            </div>
+        `;
             } else {
-                const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
                 a.download = fileName;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
-                URL.revokeObjectURL(url);
             }
+            URL.revokeObjectURL(url);
         }
+
+        function startScreenShare() {
+            navigator.mediaDevices.getDisplayMedia({ video: true })
+                .then(stream => {
+                    localStream = stream;
+                    displayScreenShare(stream);
+                    if (conn && !isPaused) {
+                        const call = peer.call(conn.peer, stream);
+                        call.on('error', (error) => {
+                            console.error("Call error:", error);
+                            alert("Error in screen sharing. Please try again.");
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error("Error starting screen share:", error);
+                    alert("Failed to start screen sharing. Please check your permissions and try again.");
+                });
+        }
+
+        function displayScreenShare(stream) {
+            const video = document.createElement('video');
+            video.srcObject = stream;
+            video.autoplay = true;
+            contentDiv.innerHTML = '';
+            contentDiv.appendChild(video);
+
+            stream.getVideoTracks()[0].onended = () => {
+                console.log("Screen share ended");
+                contentDiv.innerHTML = '<p>Screen sharing has ended.</p>';
+            };
+
+            video.onerror = (error) => {
+                console.error("Video error:", error);
+                contentDiv.innerHTML = '<p>Error displaying screen share.</p>';
+            };
+
+            stream.getVideoTracks()[0].addEventListener('ended', () => {
+                console.log("Luồng màn hình chia sẻ đã kết thúc");
+            });
+        }
+
+        function stopScreenShare() {
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+            }
+            contentDiv.innerHTML = '';
+
+            console.log("Luồng màn hình chia sẻ đã bị tắt");
+        }
+
+        function addStreamToPeerConnection(stream) {
+            stream.getTracks().forEach(track => {
+                peer.addTrack(track, stream);
+            });
+        }
+
 
         contentWrapper.addEventListener('scroll', syncScroll);
         new MutationObserver(scheduleSyncContent).observe(contentDiv, { childList: true, subtree: true });
