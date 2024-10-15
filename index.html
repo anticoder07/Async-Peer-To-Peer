@@ -416,7 +416,10 @@
                     
                 </div>
             `;
-            connectionBar.insertAdjacentHTML('afterend', `
+
+            const optionImageButton = document.querySelector('.option-image-button');
+            if (!optionImageButton) {
+                connectionBar.insertAdjacentHTML('afterend', `
                 <div class="option-image-button">
                     <button class="btn rotate-btn" onclick="rotateContent(90, true)"><i class="fas fa-undo"></i></button>
                     <button class="btn delete-btn" onclick="deleteContent()"><i class="fas fa-trash"></i></button>
@@ -424,6 +427,7 @@
                     <button class="btn zoomOut-btn" onclick="zoomOut()"><i class="fas fa-search-minus"></i></button>
                 </div>
             `);
+            }
             currentRotation = 0;
             currentZoom = 1;
             scheduleSyncContent();
@@ -446,6 +450,11 @@
             currentRotation = 0;
             currentZoom = 1;
             if (conn && !isPaused) conn.send({ type: 'delete' });
+
+            const optionImageButton = document.querySelector('.option-image-button');
+            if (optionImageButton) {
+                optionImageButton.remove();
+            }
         }
 
         function zoomIn() {
