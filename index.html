@@ -227,6 +227,62 @@
             padding: 20px;
             border-radius: 10px;
         }
+
+        .notification {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            border-radius: 5px;
+            background: #4CAF50;
+            color: white;
+            z-index: 1000;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        .notification.error {
+            background: #f44336;
+        }
+
+        .progress-container {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 300px;
+            height: 20px;
+            background: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+            z-index: 1000;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: #4CAF50;
+            transition: width 0.3s ease-out;
+        }
+
+        .progress-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #000;
+            font-size: 12px;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateY(100px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
     </style>
 </head>
 
@@ -289,6 +345,7 @@
         let scrollSyncTimeout;
         let localStream;
         let remoteStream;
+        const pdfReceivers = {};
 
         function initPeer() {
             peer = new Peer();
@@ -359,46 +416,95 @@
         function handleIncomingData(data) {
             if (isPaused) return;
             isReceiving = true;
-            switch (data.type) {
-                case 'content':
-                    contentDiv.innerHTML = data.content;
-                    break;
-                case 'scroll':
-                    contentWrapper.scrollTop = data.scrollTop;
-                    break;
-                case 'url':
-                    loadURLContent(data.url);
-                    break;
-                case 'image':
-                    displayImage(data.content);
-                    break;
-                case 'rotate':
-                    currentRotation = data.angle;
-                    const rotatable = contentDiv.querySelector('.rotatable');
-                    if (rotatable) {
-                        rotatable.style.transform = `rotate(${currentRotation}deg) scale(${currentZoom})`;
-                    }
-                    break;
-                case 'delete':
-                    deleteContentReceive();
-                    break;
-                case 'zoom':
-                    currentZoom = data.zoom;
-                    const zoomable = contentDiv.querySelector('.rotatable');
-                    if (zoomable) {
-                        zoomable.style.transform = `rotate(${currentRotation}deg) scale(${currentZoom})`;
-                    }
-                    break;
-                case 'file':
-                    receiveFile(data.file, data.name, data.type);
-                    break;
-                case 'screen':
-                    displayScreenShare(data.stream);
-                    break;
+
+            try {
+                switch (data.type) {
+                    case 'pdf-start':
+                        console.log(`Starting to receive PDF: ${data.name}`);
+                        pdfReceivers[data.name] = {
+                            chunks: new Array(data.totalChunks),
+                            size: data.size,
+                            receivedChunks: 0,
+                            totalChunks: data.totalChunks
+                        };
+                        break;
+
+                    case 'pdf-chunk':
+                        if (pdfReceivers[data.name]) {
+                            pdfReceivers[data.name].chunks[data.index] = data.data;
+                            pdfReceivers[data.name].receivedChunks++;
+                            console.log(`Received chunk ${data.index + 1}/${pdfReceivers[data.name].totalChunks} for ${data.name}`);
+                        }
+                        break;
+
+                    case 'pdf-end':
+                        if (pdfReceivers[data.name]) {
+                            console.log(`Completing PDF receive: ${data.name}`);
+                            const receiver = pdfReceivers[data.name];
+
+                            // Combine all chunks
+                            const fullFile = new Uint8Array(receiver.size);
+                            let offset = 0;
+
+                            for (const chunk of receiver.chunks) {
+                                if (chunk) {
+                                    fullFile.set(chunk, offset);
+                                    offset += chunk.length;
+                                }
+                            }
+
+                            // Display the PDF
+                            displayPDFForReceiver(fullFile, data.name);
+
+                            // Cleanup
+                            delete pdfReceivers[data.name];
+                        }
+                        break;
+
+                    // Các case khác giữ nguyên
+                    case 'content':
+                        contentDiv.innerHTML = data.content;
+                        break;
+                    case 'scroll':
+                        contentWrapper.scrollTop = data.scrollTop;
+                        break;
+                    case 'url':
+                        loadURLContent(data.url);
+                        break;
+                    case 'image':
+                        displayImage(data.content);
+                        break;
+                    case 'rotate':
+                        currentRotation = data.angle;
+                        const rotatable = contentDiv.querySelector('.rotatable');
+                        if (rotatable) {
+                            rotatable.style.transform = `rotate(${currentRotation}deg) scale(${currentZoom})`;
+                        }
+                        break;
+                    case 'delete':
+                        deleteContentReceive();
+                        break;
+                    case 'zoom':
+                        currentZoom = data.zoom;
+                        const zoomable = contentDiv.querySelector('.rotatable');
+                        if (zoomable) {
+                            zoomable.style.transform = `rotate(${currentRotation}deg) scale(${currentZoom})`;
+                        }
+                        break;
+                }
+            } catch (error) {
+                console.error('Error in handleIncomingData:', error);
             }
+
             isReceiving = false;
         }
 
+        function toggleFullscreen() {
+            const wrapper = document.getElementById('pdf-wrapper');
+            if (wrapper) {
+                wrapper.classList.toggle('fullscreen');
+            }
+        }
 
         function toggleConnectionBar() {
             const connectionBar = document.getElementById('connection-bar');
@@ -441,35 +547,176 @@
             scheduleSyncContent();
         }
 
-        fileInput.addEventListener('change', event => {
+        fileInput.addEventListener('change', async (event) => {
             const file = event.target.files[0];
             if (!file) return;
 
-            const reader = new FileReader();
-            reader.onload = e => {
-                const content = e.target.result;
-                if (file.type.startsWith('image/')) {
-                    displayImage(content);
-                    if (conn && !isPaused) conn.send({ type: 'image', content: content });
-                } else if (file.name.endsWith('.txt') || file.name.endsWith('.html')) {
-                    contentDiv.innerHTML = content;
-                    scheduleSyncContent();
-                } else if (file.name.endsWith('.pdf')) {
-                    if (conn && !isPaused) {
-                        conn.send({ type: 'file', file: new Uint8Array(content), name: file.name, type: file.type });
-                    }
-                    displayPDF(content, file.name);
-                }
-            };
-
-            if (file.type.startsWith('image/')) {
-                reader.readAsDataURL(file);
-            } else if (file.name.endsWith('.pdf')) {
-                reader.readAsArrayBuffer(file);
+            if (file.type === 'application/pdf') {
+                console.log("PDF file selected:", file.name);
+                handlePDFFile(file);
             } else {
-                reader.readAsText(file);
+                // Xử lý các loại file khác như cũ
+                const reader = new FileReader();
+                reader.onload = e => {
+                    const content = e.target.result;
+                    if (file.type.startsWith('image/')) {
+                        displayImage(content);
+                        if (conn && !isPaused) conn.send({ type: 'image', content: content });
+                    } else if (file.name.endsWith('.txt')) {
+                        const formattedContent = preserveTextFormatting(content);
+                        contentDiv.innerHTML = formattedContent;
+                        scheduleSyncContent();
+                    } else if (file.name.endsWith('.html')) {
+                        contentDiv.innerHTML = content;
+                        scheduleSyncContent();
+                    }
+                };
+
+                if (file.type.startsWith('image/')) {
+                    reader.readAsDataURL(file);
+                } else {
+                    reader.readAsText(file);
+                }
             }
         });
+
+
+        async function handlePDFFile(file) {
+            try {
+                // Đọc file thành ArrayBuffer
+                const arrayBuffer = await file.arrayBuffer();
+                const fileData = new Uint8Array(arrayBuffer);
+
+                // Hiển thị ngay lập tức cho người gửi
+                displayPDFForSender(fileData, file.name);
+
+                if (conn && !isPaused) {
+                    // Chia file thành các chunks nhỏ hơn
+                    const chunkSize = 16000; // 16KB mỗi chunk
+                    const totalChunks = Math.ceil(fileData.length / chunkSize);
+                    console.log(`Sending PDF: ${file.name}, Size: ${fileData.length}, Chunks: ${totalChunks}`);
+
+                    // Gửi thông tin ban đầu
+                    conn.send({
+                        type: 'pdf-start',
+                        name: file.name,
+                        size: fileData.length,
+                        totalChunks: totalChunks
+                    });
+
+                    // Gửi từng chunk
+                    for (let i = 0; i < totalChunks; i++) {
+                        const start = i * chunkSize;
+                        const end = Math.min(start + chunkSize, fileData.length);
+                        const chunk = fileData.slice(start, end);
+
+                        conn.send({
+                            type: 'pdf-chunk',
+                            name: file.name,
+                            index: i,
+                            data: chunk
+                        });
+
+                        // Đợi một chút giữa các chunks để tránh quá tải
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                    }
+
+                    // Gửi thông báo kết thúc
+                    conn.send({
+                        type: 'pdf-end',
+                        name: file.name
+                    });
+                }
+            } catch (error) {
+                console.error('Error handling PDF:', error);
+                alert('Error processing PDF file. Please try again.');
+            }
+        }
+
+        function displayPDFForSender(pdfData, fileName) {
+            try {
+                const blob = new Blob([pdfData], { type: 'application/pdf' });
+                const url = URL.createObjectURL(blob);
+
+                contentDiv.innerHTML = `
+            <div class="pdf-container">
+                <div class="pdf-header">
+                    <h3>${fileName}</h3>
+                    <div class="pdf-controls">
+                        <button onclick="window.open('${url}', '_blank')" class="control-btn">
+                            <i class="fas fa-external-link-alt"></i> Open
+                        </button>
+                        <button onclick="downloadPDF('${url}', '${fileName}')" class="control-btn">
+                            <i class="fas fa-download"></i> Download
+                        </button>
+                    </div>
+                </div>
+                <iframe 
+                    src="${url}#toolbar=0" 
+                    type="application/pdf"
+                    style="width: 100%; height: calc(100vh - 150px); border: none;">
+                </iframe>
+            </div>
+        `;
+                console.log('PDF displayed for sender');
+            } catch (error) {
+                console.error('Error displaying PDF for sender:', error);
+                contentDiv.innerHTML = '<div class="error">Error displaying PDF</div>';
+            }
+        }
+
+        // Hàm hiển thị PDF cho người nhận
+        function displayPDFForReceiver(pdfData, fileName) {
+            try {
+                const blob = new Blob([pdfData], { type: 'application/pdf' });
+                const url = URL.createObjectURL(blob);
+
+                contentDiv.innerHTML = `
+            <div class="pdf-container">
+                <div class="pdf-header">
+                    <h3>Received: ${fileName}</h3>
+                    <div class="pdf-controls">
+                        <button onclick="window.open('${url}', '_blank')" class="control-btn">
+                            <i class="fas fa-external-link-alt"></i> Open
+                        </button>
+                        <button onclick="downloadPDF('${url}', '${fileName}')" class="control-btn">
+                            <i class="fas fa-download"></i> Download
+                        </button>
+                    </div>
+                </div>
+                <iframe 
+                    src="${url}#toolbar=0" 
+                    type="application/pdf"
+                    style="width: 100%; height: calc(100vh - 150px); border: none;">
+                </iframe>
+            </div>
+        `;
+                console.log('PDF displayed for receiver');
+            } catch (error) {
+                console.error('Error displaying PDF for receiver:', error);
+                contentDiv.innerHTML = '<div class="error">Error displaying PDF</div>';
+            }
+        }
+
+        // Hàm download PDF
+        function downloadPDF(url, fileName) {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        function preserveTextFormatting(text) {
+            // Preserve whitespace and line breaks
+            const formattedText = text
+                .replace(/\n/g, '<br>')
+                .replace(/\t/g, '&nbsp;&nbsp;&nbsp;&nbsp;')
+                .replace(/ {2}/g, '&nbsp;&nbsp;');
+
+            return `<pre style="white-space: pre-wrap; font-family: monospace; margin: 0;">${formattedText}</pre>`;
+        }
 
         function receivePDF(fileData, fileName) {
             const blob = new Blob([fileData], { type: 'application/pdf' });
@@ -657,21 +904,43 @@
 
             if (fileType === 'application/pdf') {
                 contentDiv.innerHTML = `
-            <div>
-                <p>Received PDF: ${fileName}</p>
-                <button onclick="window.open('${url}', '_blank')">View PDF</button>
-                <a href="${url}" download="${fileName}">Download PDF</a>
+            <div class="pdf-container" style="padding: 20px;">
+                <h3>Received PDF: ${fileName}</h3>
+                <div class="pdf-actions" style="margin: 15px 0;">
+                    <button onclick="window.open('${url}', '_blank')" 
+                            style="margin-right: 10px; padding: 8px 15px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                        View PDF
+                    </button>
+                    <button onclick="downloadPDF('${url}', '${fileName}')" 
+                            style="padding: 8px 15px; background: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                        Download PDF
+                    </button>
+                </div>
+                <iframe src="${url}#toolbar=0" style="width:100%; height:500px; border:1px solid #ddd; border-radius: 4px;"></iframe>
             </div>
         `;
             } else {
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = fileName;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
+                downloadFile(url, fileName);
             }
-            URL.revokeObjectURL(url);
+        }
+
+        function downloadPDF(url, fileName) {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        function downloadFile(url, fileName) {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 100);
         }
 
         function startScreenShare() {
@@ -679,13 +948,39 @@
                 .then(stream => {
                     localStream = stream;
                     displayScreenShare(stream);
+
                     if (conn && !isPaused) {
                         const call = peer.call(conn.peer, stream);
+
+                        // Add connection error handling and reconnection logic
                         call.on('error', (error) => {
                             console.error("Call error:", error);
-                            alert("Error in screen sharing. Please try again.");
+                            // Attempt to reconnect after a brief delay
+                            setTimeout(() => {
+                                if (localStream && localStream.active) {
+                                    const newCall = peer.call(conn.peer, stream);
+                                    setupCallHandlers(newCall);
+                                }
+                            }, 2000);
                         });
+
+                        setupCallHandlers(call);
                     }
+
+                    // Add connection quality monitoring
+                    stream.getVideoTracks()[0].addEventListener('ended', () => {
+                        console.log("Screen share ended by user");
+                        contentDiv.innerHTML = '<p>Screen sharing has ended.</p>';
+                    });
+
+                    // Monitor stream quality
+                    const videoTrack = stream.getVideoTracks()[0];
+                    setInterval(() => {
+                        if (videoTrack.muted || !videoTrack.enabled) {
+                            console.log("Stream quality issues detected, attempting to recover...");
+                            videoTrack.enabled = true;
+                        }
+                    }, 1000);
                 })
                 .catch(error => {
                     console.error("Error starting screen share:", error);
@@ -693,16 +988,25 @@
                 });
         }
 
+        function setupCallHandlers(call) {
+            call.on('stream', (remoteStream) => {
+                console.log("Received remote stream");
+                displayScreenShare(remoteStream);
+            });
+
+            call.on('close', () => {
+                console.log("Call closed");
+                contentDiv.innerHTML = '<p>Screen sharing has ended.</p>';
+            });
+        }
+
         function displayScreenShare(stream) {
             const video = document.createElement('video');
             video.srcObject = stream;
             video.autoplay = true;
 
-            // Thêm kiểu dáng cho video
-            video.style.width = '100%'; // Đặt chiều rộng 100% để vừa với phần tử cha
-            video.style.height = 'auto'; // Chiều cao tự động để giữ tỷ lệ khung hình
-            video.style.borderRadius = '10px'; // Bo góc
-            video.style.boxShadow = '0 2px 10px rgba(0, 0, 0, 0.5)'; // Thêm hiệu ứng bóng
+            video.style.width = '100%';
+            video.style.height = 'auto';
 
             contentDiv.innerHTML = '';
             contentDiv.appendChild(video);
@@ -722,7 +1026,6 @@
             });
         }
 
-
         function stopScreenShare() {
             if (localStream) {
                 localStream.getTracks().forEach(track => track.stop());
@@ -736,6 +1039,183 @@
             stream.getTracks().forEach(track => {
                 peer.addTrack(track, stream);
             });
+        }
+
+        function handlePDFDisplay(pdfData, fileName) {
+            const blob = new Blob([pdfData], { type: 'application/pdf' });
+            const url = URL.createObjectURL(blob);
+
+            contentDiv.innerHTML = `
+        <div class="pdf-viewer-container">
+            <div class="pdf-header">
+                <h3>${fileName}</h3>
+                <div class="pdf-controls">
+                    <button onclick="toggleFullscreen()" class="control-btn">
+                        <i class="fas fa-expand"></i>
+                    </button>
+                    <button onclick="downloadPDF('${url}', '${fileName}')" class="control-btn">
+                        <i class="fas fa-download"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="pdf-wrapper" id="pdf-wrapper">
+                <iframe 
+                    src="${url}" 
+                    type="application/pdf"
+                    width="100%"
+                    height="100%"
+                    style="border: none;">
+                </iframe>
+            </div>
+        </div>
+    `;
+
+            // Thêm styles động
+            if (!document.getElementById('pdf-viewer-styles')) {
+                const style = document.createElement('style');
+                style.id = 'pdf-viewer-styles';
+                style.textContent = `
+            .pdf-viewer-container {
+                width: 100%;
+                height: 90vh;
+                display: flex;
+                flex-direction: column;
+                background: #f5f5f5;
+                border-radius: 8px;
+                overflow: hidden;
+            }
+
+            .pdf-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 10px 20px;
+                background: #fff;
+                border-bottom: 1px solid #ddd;
+            }
+
+            .pdf-header h3 {
+                margin: 0;
+                font-size: 16px;
+                color: #333;
+            }
+
+            .pdf-controls {
+                display: flex;
+                gap: 10px;
+            }
+
+            .control-btn {
+                padding: 8px;
+                background: #f0f0f0;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                transition: background 0.2s;
+            }
+
+            .control-btn:hover {
+                background: #e0e0e0;
+            }
+
+            .pdf-wrapper {
+                flex: 1;
+                background: #fff;
+                position: relative;
+            }
+
+            .pdf-wrapper iframe {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+            }
+
+            .fullscreen {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100vw;
+                height: 100vh;
+                z-index: 9999;
+            }
+        `;
+                document.head.appendChild(style);
+            }
+        }
+
+        function handlePDFDisplay(pdfData, fileName) {
+            try {
+                const blob = new Blob([pdfData], { type: 'application/pdf' });
+                const url = URL.createObjectURL(blob);
+
+                contentDiv.innerHTML = `
+            <div class="pdf-viewer-container">
+                <div class="pdf-header">
+                    <h3>${fileName}</h3>
+                    <div class="pdf-controls">
+                        <button onclick="toggleFullscreen()" class="control-btn">
+                            <i class="fas fa-expand"></i>
+                        </button>
+                        <button onclick="downloadPDF('${url}', '${fileName}')" class="control-btn">
+                            <i class="fas fa-download"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="pdf-wrapper" id="pdf-wrapper">
+                    <iframe 
+                        src="${url}#toolbar=0" 
+                        type="application/pdf"
+                        width="100%"
+                        height="100%"
+                        style="border: none;">
+                    </iframe>
+                </div>
+            </div>
+        `;
+            } catch (error) {
+                console.error('Lỗi khi hiển thị PDF:', error);
+                showNotification('Lỗi khi hiển thị PDF', 'error');
+            }
+        }
+
+        function updateProgressBar(progress) {
+            let progressBar = document.getElementById('transfer-progress');
+            if (!progressBar) {
+                progressBar = document.createElement('div');
+                progressBar.id = 'transfer-progress';
+                progressBar.innerHTML = `
+            <div class="progress-container">
+                <div class="progress-bar" style="width: ${progress}%"></div>
+                <div class="progress-text">${progress}%</div>
+            </div>
+        `;
+                document.body.appendChild(progressBar);
+            } else {
+                progressBar.querySelector('.progress-bar').style.width = `${progress}%`;
+                progressBar.querySelector('.progress-text').textContent = `${progress}%`;
+            }
+        }
+
+        // Hàm ẩn thanh tiến độ
+        function hideProgressBar() {
+            const progressBar = document.getElementById('transfer-progress');
+            if (progressBar) {
+                progressBar.remove();
+            }
+        }
+
+        // Hàm hiển thị thông báo
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+
+            setTimeout(() => {
+                notification.remove();
+            }, 3000);
         }
 
         contentWrapper.addEventListener('scroll', syncScroll);
