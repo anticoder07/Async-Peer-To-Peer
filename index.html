@@ -84,7 +84,7 @@
 
         #input-bar {
             background-color: #f0f0f0;
-            padding: 10px;
+            padding: 6px;
             display: flex;
             flex-wrap: wrap;
             align-items: center;
@@ -145,7 +145,7 @@
             }
 
             #connection-details {
-                margin-top: 4px;
+                margin-top: 2px;
             }
 
             #input-bar {
@@ -178,7 +178,7 @@
         .input-container-bar {
             display: flex;
             flex-wrap: nowrap;
-            min-width: 91%;
+            min-width: 88%;
         }
 
         .option-input {
@@ -189,7 +189,7 @@
 
         @media only screen and (max-width: 568px) {
             .input-container-bar {
-                flex-direction: column;
+                /* flex-direction: column; */
                 min-width: 0px;
             }
         }
@@ -298,7 +298,7 @@
                     <i class="fas fa-copy"></i> Copy ID
                 </button>
                 <button id="broadcast-btn" class="btn" onclick="broadcastPeerID()">
-                    <i class="fas fa-broadcast-tower"></i> Broadcast ID
+                    <i class="fas fa-broadcast-tower"></i> QR Scan
                 </button>
                 <div>
                     <input type="text" id="peer-id-input" placeholder="Enter Peer ID">
@@ -315,17 +315,19 @@
         </div>
         <div id="input-bar">
             <div class="input-container-bar">
-                <textarea id="text-input" placeholder="Paste your text here"></textarea>
-                <input type="text" id="url-input" placeholder="Enter URL">
+                <textarea id="text-input" placeholder="Type or paste your content here"></textarea>
             </div>
             <div class="option-input">
-                <button class="btn" onclick="loadURL()"><i class="fas fa-link"></i></button>
+                <button class="btn" onclick="showUrlInput()"><i class="fas fa-link"></i></button>
                 <input type="file" id="file-input" accept=".txt,.html,.pdf,.jpg,.jpeg,.png,.gif">
                 <button class="btn" onclick="document.getElementById('file-input').click()">
                     <i class="fas fa-file-upload"></i>
                 </button>
                 <button class="btn" onclick="startScreenShare()">
                     <i class="fas fa-camera"></i>
+                </button>
+                <button class="btn" onclick="copyContent()">
+                    <i class="fas fa-copy"></i>
                 </button>
             </div>
         </div>
@@ -352,7 +354,7 @@
             peer.on('open', id => {
                 document.getElementById('my-peer-id').textContent = id;
                 startListeningForBroadcasts();
-                checkUrlForPeerId(); // Add this line to check URL when peer is initialized
+                checkUrlForPeerId();
             });
             peer.on('connection', connection => {
                 conn = connection;
@@ -365,7 +367,6 @@
             if (inputPeerId) {
                 conn = peer.connect(inputPeerId);
                 setupConnection();
-                // Update URL with the peer ID
                 const newUrl = new URL(window.location);
                 newUrl.searchParams.set('pid', inputPeerId);
                 window.history.pushState({}, '', newUrl);
@@ -442,7 +443,6 @@
                             console.log(`Completing PDF receive: ${data.name}`);
                             const receiver = pdfReceivers[data.name];
 
-                            // Combine all chunks
                             const fullFile = new Uint8Array(receiver.size);
                             let offset = 0;
 
@@ -453,15 +453,12 @@
                                 }
                             }
 
-                            // Display the PDF
                             displayPDFForReceiver(fullFile, data.name);
 
-                            // Cleanup
                             delete pdfReceivers[data.name];
                         }
                         break;
 
-                    // Các case khác giữ nguyên
                     case 'content':
                         contentDiv.innerHTML = data.content;
                         break;
@@ -527,18 +524,37 @@
                 '<i class="fas fa-pause"></i> Pause Sync';
         }
 
+        function showUrlInput() {
+            const urlInputHtml = `
+                <div id="url-input-container" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                    <input type="text" id="url-input" placeholder="Enter URL" style="width: 100%; padding: 5px; margin-bottom: 10px;">
+                    <button onclick="loadURL()" style="padding: 5px 10px; background: #4CAF50; color: white; border: none; cursor: pointer;">Load URL</button>
+                    <button onclick="closeUrlInput()" style="padding: 5px 10px; background: #f44336; color: white; border: none; cursor: pointer; margin-left: 10px;">Cancel</button>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', urlInputHtml);
+        }
+
+        function closeUrlInput() {
+            const urlInputContainer = document.getElementById('url-input-container');
+            if (urlInputContainer) {
+                urlInputContainer.remove();
+            }
+        }
+
+        function loadURL() {
+            const url = document.getElementById('url-input').value;
+            if (url) {
+                loadURLContent(url);
+                if (conn && !isPaused) conn.send({ type: 'url', url: url });
+                closeUrlInput();
+            }
+        }
+
         textInput.addEventListener('input', () => {
             contentDiv.innerText = textInput.value;
             scheduleSyncContent();
         });
-
-        function loadURL() {
-            const url = urlInput.value;
-            if (url) {
-                loadURLContent(url);
-                if (conn && !isPaused) conn.send({ type: 'url', url: url });
-            }
-        }
 
         function loadURLContent(url) {
             contentDiv.innerHTML = `<iframe src="${url}" style="width:100%;height:100%;border:none;"></iframe>`;
@@ -552,10 +568,10 @@
             if (!file) return;
 
             if (file.type === 'application/pdf') {
-                console.log("PDF file selected:", file.name);
                 handlePDFFile(file);
+            } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+                handleDocxFile(file);
             } else {
-                // Xử lý các loại file khác như cũ
                 const reader = new FileReader();
                 reader.onload = e => {
                     const content = e.target.result;
@@ -580,57 +596,55 @@
             }
         });
 
+        async function handleDocxFile(file) {
+            const arrayBuffer = await file.arrayBuffer();
+            const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
+            const text = result.value;
+            contentDiv.innerText = text;
+            if (conn && !isPaused) conn.send({ type: 'content', content: text });
+        }
+
+        textInput.addEventListener('paste', function (e) {
+            const items = e.clipboardData.items;
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf('image') !== -1) {
+                    const blob = items[i].getAsFile();
+                    const reader = new FileReader();
+                    reader.onload = function (event) {
+                        displayImage(event.target.result);
+                    };
+                    reader.readAsDataURL(blob);
+                }
+            }
+        });
+
+        function sendMessage() {
+            const content = textInput.value;
+            if (content) {
+                contentDiv.innerText = content;
+                if (conn && !isPaused) {
+                    conn.send({ type: 'content', content: content });
+                }
+                textInput.value = '';
+            }
+        }
 
         async function handlePDFFile(file) {
-            try {
-                // Đọc file thành ArrayBuffer
-                const arrayBuffer = await file.arrayBuffer();
-                const fileData = new Uint8Array(arrayBuffer);
-
-                // Hiển thị ngay lập tức cho người gửi
-                displayPDFForSender(fileData, file.name);
-
-                if (conn && !isPaused) {
-                    // Chia file thành các chunks nhỏ hơn
-                    const chunkSize = 16000; // 16KB mỗi chunk
-                    const totalChunks = Math.ceil(fileData.length / chunkSize);
-                    console.log(`Sending PDF: ${file.name}, Size: ${fileData.length}, Chunks: ${totalChunks}`);
-
-                    // Gửi thông tin ban đầu
-                    conn.send({
-                        type: 'pdf-start',
-                        name: file.name,
-                        size: fileData.length,
-                        totalChunks: totalChunks
-                    });
-
-                    // Gửi từng chunk
-                    for (let i = 0; i < totalChunks; i++) {
-                        const start = i * chunkSize;
-                        const end = Math.min(start + chunkSize, fileData.length);
-                        const chunk = fileData.slice(start, end);
-
-                        conn.send({
-                            type: 'pdf-chunk',
-                            name: file.name,
-                            index: i,
-                            data: chunk
-                        });
-
-                        // Đợi một chút giữa các chunks để tránh quá tải
-                        await new Promise(resolve => setTimeout(resolve, 50));
-                    }
-
-                    // Gửi thông báo kết thúc
-                    conn.send({
-                        type: 'pdf-end',
-                        name: file.name
-                    });
-                }
-            } catch (error) {
-                console.error('Error handling PDF:', error);
-                alert('Error processing PDF file. Please try again.');
-            }
+            const reader = new FileReader();
+            reader.onload = async function (event) {
+                const pdfData = new Uint8Array(event.target.result);
+                const pdfDoc = await pdfjsLib.getDocument({ data: pdfData }).promise;
+                const canvas = document.createElement('canvas');
+                const page = await pdfDoc.getPage(1);
+                const viewport = page.getViewport({ scale: 1.5 });
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+                await page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
+                const imageData = canvas.toDataURL('image/png');
+                displayImage(imageData);
+                if (conn && !isPaused) conn.send({ type: 'image', content: imageData });
+            };
+            reader.readAsArrayBuffer(file);
         }
 
         function displayPDFForSender(pdfData, fileName) {
@@ -665,7 +679,6 @@
             }
         }
 
-        // Hàm hiển thị PDF cho người nhận
         function displayPDFForReceiver(pdfData, fileName) {
             try {
                 const blob = new Blob([pdfData], { type: 'application/pdf' });
@@ -698,7 +711,6 @@
             }
         }
 
-        // Hàm download PDF
         function downloadPDF(url, fileName) {
             const a = document.createElement('a');
             a.href = url;
@@ -709,7 +721,6 @@
         }
 
         function preserveTextFormatting(text) {
-            // Preserve whitespace and line breaks
             const formattedText = text
                 .replace(/\n/g, '<br>')
                 .replace(/\t/g, '&nbsp;&nbsp;&nbsp;&nbsp;')
@@ -967,13 +978,11 @@
                         setupCallHandlers(call);
                     }
 
-                    // Add connection quality monitoring
                     stream.getVideoTracks()[0].addEventListener('ended', () => {
                         console.log("Screen share ended by user");
                         contentDiv.innerHTML = '<p>Screen sharing has ended.</p>';
                     });
 
-                    // Monitor stream quality
                     const videoTrack = stream.getVideoTracks()[0];
                     setInterval(() => {
                         if (videoTrack.muted || !videoTrack.enabled) {
@@ -1070,7 +1079,6 @@
         </div>
     `;
 
-            // Thêm styles động
             if (!document.getElementById('pdf-viewer-styles')) {
                 const style = document.createElement('style');
                 style.id = 'pdf-viewer-styles';
@@ -1198,7 +1206,6 @@
             }
         }
 
-        // Hàm ẩn thanh tiến độ
         function hideProgressBar() {
             const progressBar = document.getElementById('transfer-progress');
             if (progressBar) {
@@ -1206,7 +1213,6 @@
             }
         }
 
-        // Hàm hiển thị thông báo
         function showNotification(message, type = 'info') {
             const notification = document.createElement('div');
             notification.className = `notification ${type}`;
@@ -1220,6 +1226,15 @@
 
         contentWrapper.addEventListener('scroll', syncScroll);
         new MutationObserver(scheduleSyncContent).observe(contentDiv, { childList: true, subtree: true });
+
+        function copyContent() {
+            const content = contentDiv.innerText;
+            navigator.clipboard.writeText(content).then(() => {
+                alert('Content copied to clipboard!');
+            }).catch(err => {
+                console.error('Failed to copy: ', err);
+            });
+        }
 
         document.querySelector('button[onclick="connectToPeer()"]').onclick = () => connectToPeer();
         window.onload = initPeer;
